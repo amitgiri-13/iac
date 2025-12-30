@@ -125,3 +125,161 @@ resource "aws_instance" "lab_ec2" {
   }
 }
 
+
+resource "aws_s3_bucket" "access_logs" {
+  bucket = "task-access-logs-bucket-terraform-adex"
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_s3_bucket_versioning" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+
+}
+
+resource "aws_s3_bucket_public_access_block" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket_policy" "access_logs" {
+  bucket = aws_s3_bucket.access_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowS3Logging"
+        Effect = "Allow"
+        Principal = {
+          Service = "logging.s3.amazonaws.com"
+        }
+        Action   = "s3:PutObject"
+        Resource = "arn:aws:s3:::task-access-logs-bucket-terraform-adex/*"
+        Condition = {
+          StringEquals = {
+            "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+          }
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_s3_bucket" "secure_data" {
+  bucket = "task-secure-data-bucket-terraform-adex"
+}
+
+resource "aws_s3_bucket_versioning" "secure_data" {
+  bucket = aws_s3_bucket.secure_data.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "secure_data" {
+  bucket = aws_s3_bucket.secure_data.id
+
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+
+resource "aws_s3_bucket_public_access_block" "secure_data" {
+  bucket = aws_s3_bucket.secure_data.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+
+resource "aws_s3_bucket_logging" "secure_data" {
+  bucket        = aws_s3_bucket.secure_data.id
+  target_bucket = aws_s3_bucket.access_logs.id
+  target_prefix = "data-bucket-access-logs/"
+}
+
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "secure_data" {
+  bucket = aws_s3_bucket.secure_data.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "secure_data" {
+  bucket = aws_s3_bucket.secure_data.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "DenyInsecureTransport"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource = [
+          "arn:aws:s3:::task-secure-data-bucket-terraform-adex",
+          "arn:aws:s3:::task-secure-data-bucket-terraform-adex/*"
+        ]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
+output "data_bucket" {
+  description = "Secure primary S3 bucket"
+  value       = aws_s3_bucket.secure_data.id
+}
+
+output "logs_bucket" {
+  description = "S3 bucket storing access logs"
+  value       = aws_s3_bucket.access_logs.id
+}
+
+output "ec2_public_ip" {
+  description = "Public IP address of the EC2 instance"
+  value       = aws_instance.lab_ec2.public_ip
+}
