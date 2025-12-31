@@ -18,7 +18,7 @@ resource "aws_vpc" "vpc" {
   enable_dns_support   = true
 
   tags = {
-    Name = "TaskVPC"
+    Name = var.vpc_name
   }
 }
 
@@ -26,7 +26,7 @@ resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.vpc.id
 
   tags = {
-    Name = "TaskIGW"
+    Name = var.igw_name
   }
 }
 
@@ -37,7 +37,7 @@ resource "aws_subnet" "subnet" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name = "TaskSubnet"
+    Name = var.public_subnet_name
   }
 }
 
@@ -45,7 +45,7 @@ resource "aws_route_table" "routetable" {
   vpc_id = aws_vpc.vpc.id
 
   tags = {
-    Name = "TaskRouteTable"
+    Name = var.public_route_table_name
   }
 }
 
@@ -61,7 +61,7 @@ resource "aws_route_table_association" "subnet_assoc" {
 }
 
 resource "aws_security_group" "sg" {
-  name        = "TaskSecurityGroup"
+  name        = var.security_group_name
   description = "Allow SSH and HTTP"
   vpc_id      = aws_vpc.vpc.id
 
@@ -87,22 +87,22 @@ resource "aws_security_group" "sg" {
   }
 
   tags = {
-    Name = "TaskSecurityGroup"
+    Name = var.security_group_name
   }
 }
 
 resource "aws_instance" "lab_ec2" {
   ami           = "ami-084568db4383264d4"
-  instance_type = "t3.micro"
-  key_name      = "cfkey"
+  instance_type = var.instance_type
+  key_name      = var.keypair
 
   subnet_id              = aws_subnet.subnet.id
   vpc_security_group_ids = [aws_security_group.sg.id]
 
   root_block_device {
-    volume_type           = "gp2"
-    volume_size           = 20
-    delete_on_termination = true
+    volume_type           = var.volume_type
+    volume_size           = var.volume_size
+    delete_on_termination = var.delete_on_termination
   }
 
   user_data = <<-EOF
@@ -121,13 +121,13 @@ resource "aws_instance" "lab_ec2" {
                     EOF
 
   tags = {
-    Name = "TaskEC2"
+    Name = var.instance_name
   }
 }
 
 
 resource "aws_s3_bucket" "access_logs" {
-  bucket = "task-access-logs-bucket-terraform-adex"
+  bucket = var.access_logs_bucket_name
 
   lifecycle {
     prevent_destroy = true
@@ -185,7 +185,7 @@ resource "aws_s3_bucket_policy" "access_logs" {
           Service = "logging.s3.amazonaws.com"
         }
         Action   = "s3:PutObject"
-        Resource = "arn:aws:s3:::task-access-logs-bucket-terraform-adex/*"
+        Resource = "arn:aws:s3:::${var.access_logs_bucket_name}/*"
         Condition = {
           StringEquals = {
             "aws:SourceAccount" = data.aws_caller_identity.current.account_id
@@ -197,7 +197,7 @@ resource "aws_s3_bucket_policy" "access_logs" {
 }
 
 resource "aws_s3_bucket" "secure_data" {
-  bucket = "task-secure-data-bucket-terraform-adex"
+  bucket = var.secure_data_bucket_name
 }
 
 resource "aws_s3_bucket_versioning" "secure_data" {
@@ -256,8 +256,8 @@ resource "aws_s3_bucket_policy" "secure_data" {
         Principal = "*"
         Action    = "s3:*"
         Resource = [
-          "arn:aws:s3:::task-secure-data-bucket-terraform-adex",
-          "arn:aws:s3:::task-secure-data-bucket-terraform-adex/*"
+          "arn:aws:s3:::${var.secure_data_bucket_name}",
+          "arn:aws:s3:::${var.secure_data_bucket_name}/*"
         ]
         Condition = {
           Bool = {
@@ -269,17 +269,3 @@ resource "aws_s3_bucket_policy" "secure_data" {
   })
 }
 
-output "data_bucket" {
-  description = "Secure primary S3 bucket"
-  value       = aws_s3_bucket.secure_data.id
-}
-
-output "logs_bucket" {
-  description = "S3 bucket storing access logs"
-  value       = aws_s3_bucket.access_logs.id
-}
-
-output "ec2_public_ip" {
-  description = "Public IP address of the EC2 instance"
-  value       = aws_instance.lab_ec2.public_ip
-}
